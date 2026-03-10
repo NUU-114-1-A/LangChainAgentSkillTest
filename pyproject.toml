@@ -1,0 +1,11 @@
+[project]
+name = "myiotagent"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.14"
+dependencies = [
+    "langchain>=1.2.10",
+    "langchain-openai>=1.1.10",
+    "pydantic>=2.12.5",
+]
