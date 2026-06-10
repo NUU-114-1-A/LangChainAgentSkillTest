@@ -8,3 +8,4 @@ wheels/
 knowledge/
 # Virtual environments
 .venv
+.vscode/ 

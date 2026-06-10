@@ -9,13 +9,12 @@ from langchain_core.tools import tool
 from langgraph.prebuilt import create_react_agent
 from langgraph.checkpoint.memory import MemorySaver
 import json
-# 🚀 新增 Flask 相關套件
 from flask import Flask, request, jsonify
 
 # ==========================================
 # 0. 設定目錄結構的絕對路徑
 # ==========================================
-KNOWLEDGE_BASE_DIR = r"C:\rag-skill\rag-skill\knowledge"
+KNOWLEDGE_BASE_DIR = r"C:\Users\User\Desktop\agent server\LangChainAgentSkillTest\knowledge"
 
 # ==========================================
 # 1. 定義適配該結構的真實工具 (Tools)
@@ -38,7 +37,7 @@ def update_user_memory(user_id: str, new_info: str) -> str:
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     entry = f"### 記錄時間：{timestamp}\n- {new_info}\n\n"
     
-    # 🚀 加上這行！讓你的終端機印出大腦正在寫筆記的動作
+
     print(f"\n將記憶寫入: {file_path}")
     print(f"記憶內容: {new_info}")
     
@@ -62,11 +61,11 @@ def get_current_time() -> str:
     當需要判斷現在是白天還是晚上、確認警報發生的時間點，或是使用者詢問時間時，請呼叫此工具。
     """
     now = datetime.now()
-    # 將星期轉換為中文，讓 AI 更好理解
+   
     weekday_map = {0: "星期一", 1: "星期二", 2: "星期三", 3: "星期四", 4: "星期五", 5: "星期六", 6: "星期日"}
     weekday = weekday_map[now.weekday()]
     
-    # 格式化輸出：2026-04-27 17:45:00 (星期一)
+    # 格式化輸出
     time_str = now.strftime(f"%Y-%m-%d %H:%M:%S ({weekday})")
     
     return f"目前的系統時間是：{time_str}"
@@ -86,69 +85,87 @@ def list_directory(relative_path: str = "") -> str:
     except Exception as e:
         return f"讀取目錄發生錯誤：{str(e)}"
 
+from langchain_core.tools import tool
+
+DEVICE = {
+    "A": {
+        'name': 'Lab_Plug', 
+        'id': "a307295fd6637500b6kozp",
+        'ip': "192.168.98.35",
+        'key': "IjB(fEObaJ|H$P`w", 
+    }
+}
+
+# 資料庫連線設定
+DB_CONFIG = {
+    "dbname": "postgres",
+    "user": "postgres",
+    "password": "nuuCSIE406",
+    "host": "192.168.98.46",
+    "port": "5433"
+}
 
 
-@tool
-def control_smart_device(device_key: str, action: str) -> str:
-    """
-    【系統強制要求】控制實體智慧家電 (例如：開關燈) 專用工具。
-    當使用者說「天黑了」、「開燈」、「關燈」時，請優先呼叫此工具。
-    device_key: 設備代號 (目前可用: "A" 代表 Lab_Plug)
-    action: 欲執行的動作，必須是 "on" (開啟) 或 "off" (關閉)
-    """
-    if device_key not in DEVICE:
-        return f"錯誤: 找不到代號 '{device_key}' 的設備。目前只有 'A'。"
-        
-    info = DEVICE[device_key]
-    try:
-        print(f"\n系統正在透過區域網路直接連線 Tuya 設備: {info['name']} ...")
-        d = tinytuya.OutletDevice(info['id'], info['ip'], info['key'])
-        d.set_version(3.4)
-        
-        if action.lower() == 'on':
-            d.turn_on()
-            status_text = "開啟"
-        else:
-            d.turn_off()
-            status_text = "關閉"
-            
-        data = d.status()
-        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        log_msg = f"[{now}] 設備: {info['name']} | 狀態: {status_text}"
-        print(f"系統：{log_msg}")
-        
-        return f"成功！已經將 {info['name']} {status_text}。"
-        
-    except Exception as e:
-        return f"控制設備發生錯誤: {str(e)}。"
-
-# ==========================================
-# 同學的中繼網頁 API 設定
-# ==========================================
 API_BASE_URL = "http://192.168.98.46:5000" 
 
+import requests
+
 @tool
-def read_sensor_data(sensor_type: str) -> str:
+def read_latest_sensor_and_vitals_data(limit: int = 1) -> str:
     """
-    從中繼網頁 API 讀取最新的感測器數值。
-    當使用者詢問環境狀態時呼叫此工具。
-    sensor_type: 感測器種類。必須且只能是以下三者之一：
-    - 'temperature' (查詢溫度)
-    - 'humidity' (查詢濕度)
-    - 'all' (未指定或同時查詢多項數值時使用)
+    從中繼網頁 API 讀取最新的整合感測器數據（包含環境與生理特徵）。
+    當使用者詢問目前的溫度、濕度、心率（心跳）或呼吸率時，皆呼叫此工具。
+    
+    參數:
+    - limit: 欲查詢的最新資料筆數，預設為 1 筆。
     """
     try:
-        url = f"{API_BASE_URL}/api/get_sensor"
-        params = {"type": sensor_type}
+        url = f"{API_BASE_URL}/api/get_combined_latest"  
+        params = {"limit": limit}
         
-        print(f"\nAPI請求 {sensor_type} 數據...")
+        print(f"\n[Tool] 正在向 API 請求最新 {limit} 筆整合感測數據...")
         response = requests.get(url, params=params)
         
         if response.status_code == 200:
-            data = response.json()
-            return f"最新 {sensor_type} 數值為: {data.get('value')}, 記錄時間: {data.get('timestamp')}"
+            res_json = response.json()
+            
+            
+            if res_json.get("status") != "success":
+                return "API 回傳失敗，未能取得正確資料。"
+                
+            latest_data = res_json.get("latest_data", {})
+            env_list = latest_data.get("environment", [])
+            vital_list = latest_data.get("vitals", [])
+            
+            
+            result_messages = []
+            result_messages.append(f"【系統查詢時間】{res_json.get('timestamp')}")
+            
+            # 解析環境資料
+            if env_list:
+                result_messages.append("\n[環境資料]")
+                for i, env in enumerate(env_list, 1):
+                    result_messages.append(
+                        f"第 {i} 筆 - 時間: {env['time']}, 溫度: {env['temp']}, 濕度: {env['hum']}"
+                    )
+            
+            # 解析生理資料
+            if vital_list:
+                result_messages.append("\n[生理特徵資料]")
+                for i, vital in enumerate(vital_list, 1):
+                    result_messages.append(
+                        f"第 {i} 筆 - 時間: {vital['time']}, 心率: {vital['heart_rate']}, 呼吸率: {vital['respiratory_rate']}"
+                    )
+                    
+            if not env_list and not vital_list:
+                return "目前資料庫中沒有任何最新的感測與生理資料。"
+                
+            # 將陣列組合成字串回傳給 AI 閱讀
+            return "\n".join(result_messages)
+            
         else:
             return f"無法取得資料，伺服器回應狀態碼: {response.status_code}"
+            
     except Exception as e:
         return f"呼叫感測器 API 發生錯誤: {str(e)}"
 
@@ -187,7 +204,7 @@ def read_text_file(relative_file_path: str, num_lines: int = 100) -> str:
     """
     target_path = os.path.join(KNOWLEDGE_BASE_DIR, relative_file_path)
     
-    # 🚀 實況轉播 1：告訴你大腦準備打開哪本書
+    
     print(f"\n正在翻閱知識庫：尋找並打開檔案 '{relative_file_path}'...")
     
     encodings = ['utf-8', 'big5', 'gbk', 'cp950']
@@ -209,51 +226,20 @@ def read_text_file(relative_file_path: str, num_lines: int = 100) -> str:
     if len(content) <= num_lines:
         
         print(f"讀取完畢 '{relative_file_path}' (共 {len(content)} 行內容)")
-        return f"📄 {relative_file_path} 的完整內容：\n" + "".join(content)
+        return f"{relative_file_path} 的完整內容：\n" + "".join(content)
     else:
         
         print(f"讀取完畢 已擷取 '{relative_file_path}' 的前 {num_lines} 行重點")
-        return f"📄 {relative_file_path} 的前 {num_lines} 行內容：\n" + "".join(content[:num_lines])
+        return f"{relative_file_path} 的前 {num_lines} 行內容：\n" + "".join(content[:num_lines])
 
-@tool
-def read_pdf_preview(relative_file_path: str, page_num: int = 0) -> str:
-    """
-    讀取 PDF 檔案的特定頁面內容 (預設讀取第 0 頁，也就是第一頁)。
-    """
-    target_path = os.path.join(KNOWLEDGE_BASE_DIR, relative_file_path)
-    try:
-        reader = PdfReader(target_path)
-        if page_num >= len(reader.pages):
-            return f"錯誤：該 PDF 只有 {len(reader.pages)} 頁。"
-        
-        page = reader.pages[page_num]
-        text = page.extract_text()
-        return f"📑 {relative_file_path} (第 {page_num} 頁) 內容擷取：\n{text[:1500]}..." 
-    except Exception as e:
-        return f"讀取 PDF 發生錯誤：{str(e)}"
 
-@tool
-def read_excel_preview(relative_file_path: str, num_rows: int = 5) -> str:
-    """
-    分析 Excel (.xlsx) 結構化資料。
-    """
-    target_path = os.path.join(KNOWLEDGE_BASE_DIR, relative_file_path)
-    try:
-        df = pd.read_excel(target_path)
-        info = f"📊 Excel 檔案: {relative_file_path}\n"
-        info += f"總資料筆數: {len(df)}\n"
-        info += f"包含欄位: {', '.join(df.columns)}\n"
-        info += f"前 {num_rows} 筆預覽:\n{df.head(num_rows).to_markdown()}"
-        return info
-    except Exception as e:
-        return f"讀取 Excel 發生錯誤：{str(e)}"
 
 import json
 @tool
 def get_sensor_history_api_tool(hours: int = 6) -> str:
     """
     當你需要查詢長輩過去一段時間（例如：昨晚、過去幾小時）的歷史感測趨勢時，請呼叫此工具。
-    這可以用來分析「睡眠品質」、「判斷異常是一時的還是持續的」，或是了解「環境溫濕度的變化趨勢」。
+    這可以用來分析「睡眠品質」、「判斷異常是一時的還是持續的」，或是了解「環境溫濕度及心率的變化趨勢」。
     輸入參數 hours 為整數，代表要往前查詢幾小時的資料（預設為 6，最多 24）。
     """
     # 將所有需要的套件直接 import 在函式內部，避免框架作用域抓不到的問題
@@ -303,7 +289,7 @@ def push_message_api_tool(text: str, user_id: str = "U1e5c0bf175be6f76d7a861c75d
     }
     
     try:
-        # 發送 POST 請求給 Flask API (設定 timeout 避免 Agent 卡死)
+        # 發送 POST 請求給 Flask API 
         response = requests.post(f"{API_BASE_URL}/api/push_message", json=payload, timeout=10)
         
         # 檢查 HTTP 狀態碼 (200 OK)
@@ -323,18 +309,140 @@ def push_message_api_tool(text: str, user_id: str = "U1e5c0bf175be6f76d7a861c75d
         return f"系統回報：API 請求超時！推播伺服器沒有回應。"
     except requests.exceptions.RequestException as e:
         return f"系統回報：呼叫推播 API 時發生未知的網路錯誤：{str(e)}"
-       
+    
+@tool
+def read_user_medications(user_id: str) -> str:
+    """
+    從 API 讀取使用者目前的用藥清單與提醒時間。
+    當使用者詢問「我目前有哪些藥要吃？」、「幫我查一下用藥提醒」時，請呼叫此工具。
+    
+    參數:
+    - user_id: 請從系統提示資訊 [系統資訊：當前對話使用者 ID 為 ...] 中擷取並填入此參數。絕對不能留空。
+    """
+    import os
+    import requests
+    
+    
+    
+    try:
+        url = f"{API_BASE_URL}/api/agent/get_meds"
+        
+        params = {"user_id": user_id}
+        
+        print(f"\n[Tool] 正在向 API 請求用藥清單 (目標使用者: {user_id})...")
+        response = requests.get(url, params=params)
+        
+        if response.status_code == 200:
+            res_json = response.json()
+            
+            if res_json.get("status") != "success":
+                return "API 回傳失敗，未能取得正確資料。"
+                
+            meds_data = res_json.get("data", [])
+            
+            if not meds_data:
+                return res_json.get("message", "目前資料庫中沒有任何用藥提醒設定。")
+                
+            result_messages = ["[目前用藥清單]"]
+            for i, med in enumerate(meds_data, 1):
+                result_messages.append(
+                    f"第 {i} 項 - 藥物名稱: {med['med_name']}, 提醒時間: {med['remind_times']}, 頻率: {med['frequency']}, 備註: {med['notes']}"
+                )
+                
+            return "\n".join(result_messages)
+            
+        else:
+            return f"無法取得資料，伺服器回應狀態碼: {response.status_code}"
+            
+    except Exception as e:
+        return f"呼叫查詢用藥 API 發生錯誤: {str(e)}"
+
+from langchain_core.tools import tool
+
+@tool
+def add_user_medication(
+    user_id: str, 
+    med_name: str, 
+    remind_times: list[str], 
+    frequency_type: str = "daily", 
+    interval_days: int = 1
+) -> str:
+    """
+    向 API 新增使用者的用藥提醒排程。
+    當使用者要求「新增吃藥提醒」、「設定用藥時間」時，請呼叫此工具。
+    
+    【重要防呆指示】：
+    1. 呼叫前必須確保使用者提供了「藥物名稱」與「提醒時間」。若缺時間請先反問使用者。
+    2. user_id: 請從系統提示資訊 [系統資訊：當前對話使用者 ID 為 ...] 中擷取。絕對不能留空。
+    
+    【吃藥頻率判斷規則】(非常重要)：
+    - 如果使用者說「每天吃」、「每天」：frequency_type="daily", interval_days=1
+    - 如果使用者說「每兩天吃一次」、「每隔3天」：frequency_type="every_n_days", interval_days=N (例如 2 或 3)
+    - 如果使用者沒有特別說明頻率，預設為每天吃 (daily, 1)。
+    
+    參數:
+    - user_id: 系統資訊中的使用者 ID
+    - med_name: 欲新增的藥物名稱
+    - remind_times: 提醒時間清單，陣列格式 ["08:00", "20:00"]
+    - frequency_type: 頻率類型 ("daily" 或 "every_n_days")
+    - interval_days: 間隔天數 (整數，預設 1)
+    """
+    import os
+    import requests
+    
+    API_BASE_URL = os.getenv("API_BASE_URL", "http://192.168.98.46:5000")
+    
+    
+    if interval_days > 1:
+        frequency_type = "every_n_days"
+    elif frequency_type == "daily" or interval_days <= 1:
+        frequency_type = "daily"
+        interval_days = 1
+    
+    try:
+        url = f"{API_BASE_URL}/api/agent/add_med"
+        
+        payload = {
+            "user_id": user_id,
+            "med_name": med_name,
+            "remind_times": remind_times,
+            "frequency_type": frequency_type,
+            "interval_days": interval_days
+        }
+        
+        print(f"\n[Tool] 正在為使用者 {user_id} 新增用藥提醒...")
+        print(f"       -> 藥名: {med_name}, 時間: {remind_times}, 頻率: {frequency_type}, 間隔天數: {interval_days}")
+        
+        response = requests.post(url, json=payload)
+        
+        if response.status_code == 200:
+            res_json = response.json()
+            
+            if res_json.get("status") != "success":
+                return f"API 回傳失敗，伺服器訊息: {res_json.get('message')}"
+                
+            return res_json.get("message", f"成功！已為 {med_name} 設定提醒時間 {remind_times} (頻率: {frequency_type}, 間隔 {interval_days} 天)。")
+            
+        else:
+            try:
+                error_msg = response.json().get("message", "未知錯誤")
+                return f"無法新增資料，伺服器回報: {error_msg}"
+            except:
+                return f"無法新增資料，伺服器回應狀態碼: {response.status_code}"
+                
+    except Exception as e:
+        return f"呼叫新增用藥 API 發生錯誤: {str(e)}"
+
 tools = [list_directory, 
-         read_text_file, 
-         read_pdf_preview, 
-         read_excel_preview, 
-         control_smart_device, 
-         read_sensor_data, 
+         read_text_file,  
+         read_latest_sensor_and_vitals_data, 
          log_action_to_db,
          get_current_time,
          get_sensor_history_api_tool,
          update_user_memory,
-         push_message_api_tool]
+         push_message_api_tool,
+         add_user_medication,
+         read_user_medications]
 
 # ==========================================
 # 2. 連接 LM Studio 
@@ -342,16 +450,18 @@ tools = [list_directory,
 llm = ChatOpenAI(
     base_url="http://192.168.98.39:1234/v1/",  
     api_key="lm-studio", 
- 
     temperature=0.1,      
-    max_tokens=1000,             
+    max_tokens=1000,    
+    # model="lfm2.5-1.2b-thinking",         
+    model="gpt-oss-20b",         
+    # model="google/gemma-4-e4b",         
     timeout=120                  
 )
 
 # ==========================================
-# 3. 核心大腦：RAG-Skill 漸進式檢索策略
+# 3. 核心大腦：RAG-Skill 檢索策略
 # ==========================================
-system_prompt = """你是一個【智慧照護系統的核心大腦】。你同時具備「控制實體家電」、「檢索本地知識庫」、「讀取感測器」與「管理專屬記憶」的能力。
+system_prompt = """你是一個【智慧照護系統的核心大腦】。你同時具備「檢索本地知識庫」、「讀取感測器」與「管理專屬記憶」的能力。
 
 【第零階段：專屬記憶提取與管理】
 1. 提取記憶：在制定照護決策時，請優先結合上下文記憶，若需要更詳盡的個人資訊，可嘗試呼叫 `read_text_file` 探索 `memories` 目錄。
@@ -362,10 +472,9 @@ system_prompt = """你是一個【智慧照護系統的核心大腦】。你同�
 
 【第一階段：意圖分流與複合行動】
 收到使用者的對話後，請判斷需求並執行對應行動：
-情境 A（環境控制/生理不適）：立刻呼叫 `control_smart_device` 或 `trigger_n8n_workflow`。
-情境 B（查閱知識）：啟動【知識庫檢索流程】去找衛教答案。
-情境 C（環境數據/歷史趨勢）：呼叫 `read_sensor_data` 或 `get_sensor_history` 讀取最新狀態與過去趨勢。
-情境 D（混合需求與個人化）：先查閱專屬記憶與知識庫，結合感測數據，若需控制則連動家電，最後給出專屬建議。
+情境 A（查閱知識）：啟動【知識庫檢索流程】去找衛教答案。
+情境 B（環境數據/歷史趨勢）：呼叫 `read_sensor_data` 或 `get_sensor_history` 讀取最新狀態與過去趨勢。
+情境 C（混合需求與個人化）：先查閱專屬記憶與知識庫，結合感測數據，最後給出專屬建議。
 
 【第二階段：知識庫漸進式檢索流程】
 1. 永遠先從根目錄開始，可呼叫 `list_directory` 查看。
@@ -374,7 +483,7 @@ system_prompt = """你是一個【智慧照護系統的核心大腦】。你同�
 
 ---
 【第三階段：全面強制紀錄（絕對嚴格遵守）】
-無論使用者詢問什麼（就算是閒聊、查天氣、更新記憶、控制家電），在你得出最終答案並準備回覆使用者「之前」，你【絕對必須】先呼叫 `log_action_to_db` 將這次的互動記錄下來。
+無論使用者詢問什麼（就算是閒聊、查天氣、更新記憶），在你得出最終答案並準備回覆使用者「之前」，你【絕對必須】先呼叫 `log_action_to_db` 將這次的互動記錄下來。
 - user_input: 填入使用者的原始問題。
 - action_desc: 填入你這次處置的精簡摘要（例如：「回答溫濕度趨勢」、「開啟電燈A防跌」、「更新阿公愛喝茶的個人記憶」、「提供失智症衛教資訊」）。
 成功呼叫紀錄工具後，才能輸出最終答案給使用者。
@@ -387,13 +496,11 @@ system_prompt = """你是一個【智慧照護系統的核心大腦】。你同�
 3. 清單請使用簡單的數字 (1. 2. 3.) 或簡單符號 (如 - 或 •)。
 4. 除非有特定要求，否則一律回答繁體中文。
 """
-# ==========================================
-# 4. 建立並執行 Agent
-# ==========================================
+
 memory = MemorySaver()
 agent = create_react_agent(llm, tools, prompt=system_prompt, checkpointer=memory)
 
-# 🚀 建立 Flask 應用程式
+
 app = Flask(__name__)
 
 @app.route("/api/ask_ai", methods=['POST'])
@@ -416,9 +523,9 @@ def ask_ai():
      
         combined_prompt = f"[系統資訊：當前對話使用者 ID 為 {user_id}]\n使用者說：{user_input}"
         
-        # 呼叫大腦思考
+       
         result = agent.invoke(
-            {"messages": [("user", combined_prompt)]}, # 🚀 這裡改傳送 combined_prompt
+            {"messages": [("user", combined_prompt)]}, # 這裡改傳送 combined_prompt
             config=config 
         )
         
@@ -443,9 +550,9 @@ def ask_ai():
             "reply": "發生錯誤，請稍後再試！"
         }), 500
 
-#  新增：啟動 Flask 伺服器的執行緒函數
+
 def run_flask_server():
-    # 注意：在 Thread 裡面執行 Flask 時，use_reloader 必須設為 False
+    
     app.run(host="0.0.0.0", port=8000, use_reloader=False)
 
 if __name__ == "__main__":
@@ -459,7 +566,7 @@ if __name__ == "__main__":
     print("="*50)
     print("啟動API 伺服器 (Port 8000)...")
     
-    # 將 Flask 伺服器放到背景執行緒運作
+   
     server_thread = threading.Thread(target=run_flask_server)
     server_thread.daemon = True # 設定為守護執行緒，主程式關閉時它也會自動關閉
     server_thread.start()
@@ -477,13 +584,13 @@ if __name__ == "__main__":
                 print("系統關閉中...")
                 break
                 
-            # 避免輸入空白
+            
             if not user_text.strip():
                 continue
                 
             print("\n思考中，請稍候...")
             
-            # 手動測試時給予一個專用的 thread_id
+            
             config = {
                 "configurable": {"thread_id": "terminal_tester"}, 
                 "recursion_limit": 15
@@ -497,7 +604,7 @@ if __name__ == "__main__":
             
             raw_response = result["messages"][-1].content
             
-            # 文字淨化處理 (跟 API 一樣)
+            # 文字淨化處理
             clean_response = raw_response
             clean_response = re.sub(r'\*{2}', '', clean_response)
             clean_response = re.sub(r'^\s*[\*\-]\s+', '• ', clean_response, flags=re.MULTILINE)
